@@ -1,0 +1,39 @@
+{
+  "name": "ai-calling-agent-api",
+  "version": "1.0.0",
+  "description": "This backend powers an AI-driven calling agent using Twilio, OpenAI GPT-4, and speech technologies (STT/TTS). It handles real-time phone conversations, processes user speech into text, generates smart replies via GPT-4, and converts them back to speech for natural, human-like interactions. Built with Node.js and Express, this demo is fully customizable and designed to scale with business-specific scripts, intents, and workflows.",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anmolsharma0002/ai-calling-agent-api.git"
+  },
+  "keywords": [
+    "AI",
+    "Calling",
+    "Voice",
+    "Automation"
+  ],
+  "author": "Anmol Sharma",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/anmolsharma0002/ai-calling-agent-api/issues"
+  },
+  "homepage": "https://github.com/anmolsharma0002/ai-calling-agent-api#readme",
+  "dependencies": {
+    "axios": "^1.9.0",
+    "body-parser": "^2.2.0",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "http-errors": "^2.0.0",
+    "openai": "^4.96.2",
+    "twilio": "^5.5.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
