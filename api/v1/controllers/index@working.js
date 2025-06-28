@@ -75,8 +75,7 @@ exports.voice = async (req, res) => {
       action: '/api/v1/process-speech',
       method: 'POST',
       speechTimeout: 2,
-      timeout: 10,
-      speechModel: 'experimental_conversations',
+      timeout: 10
     });
 
     // Optionally a fallback in case user doesn’t speak at all
@@ -200,9 +199,6 @@ exports.processSpeech = async (req, res) => {
   console.log('🎤 /process-speech webhook hit');
 
   const twiml = new twilio.twiml.VoiceResponse();
-  
-  console.log(req.body);
-
   const speechResult = (req.body.SpeechResult || '').toLowerCase();
   const callSid = req.body.CallSid || 'default';
 
@@ -270,8 +266,7 @@ exports.processSpeech = async (req, res) => {
         action: '/api/v1/process-speech',
         method: 'POST',
         speechTimeout: 2,
-        timeout: 10,
-        speechModel: 'experimental_conversations',
+        timeout: 10
       });
 
       twiml.say({ voice: 'polly.Amy', language: 'en-IN' }, 'How else may I help you?');
