@@ -29,10 +29,10 @@ module.exports = {
 
         — If the user says YES or responds positively to scheduling a consultation:
 
-        • If name or email is missing, say:
-            "Please provide both your name and a valid email so I can schedule your consultation."
+        • If name or contact number is missing, say:
+            "Please provide both your name and a valid contact number so I can schedule your consultation."
 
-        • Once the user provides both name and email, say:
+        • Once the user provides both name and contact number, say:
             "Great, thank you! At what date and time would you be comfortable scheduling the call?"
 
         • If the user provides a valid date and time, confirm:
