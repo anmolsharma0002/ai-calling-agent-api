@@ -16,6 +16,14 @@ const express = require('express');
 const createError = require('http-errors');
 const dotenv = require('dotenv');
 dotenv.config(); // Load environment variables
+const path = require('path');
+
+// ======= LOG DIRECTORY SETUP =======
+const fs = require('fs');
+const logDir = path.join(__dirname, 'logs'); // ensures correct path regardless of working directory
+if (!fs.existsSync(logDir)) {
+  fs.mkdirSync(logDir);
+}
 
 /** 
  * Load custom environment configuration 
@@ -35,25 +43,7 @@ app.use(express.urlencoded({ extended: false })); // <--- REQUIRED
 // app.use(bodyParser.urlencoded({ extended: true }));
 
 // Optionally: log all requests in development
-console.log(process.env.NODE_ENV);
-
-if (process.env.NODE_ENV === 'development') {
-    app.use((req, res, next) => {
-        console.log(`${req.method} ${req.path}`, {
-            body: req.body,
-            headers: req.headers,
-            query: req.query
-        });
-        next();
-    });
-}
-
-const { OpenAI } = require('openai');
-const twilio = require('twilio');
-
-const openai = new OpenAI({
-    apiKey: env.openai_api_key,
-});
+// console.log(process.env.NODE_ENV);
 
 /**
  * Versioning middleware - dynamically loads API versions
@@ -67,16 +57,6 @@ const API_VERSION = process.env.API_VERSION || 'v1';
 app.use('/api', getVersion(API_VERSION));
 app.use('/api/latest', getLatestVersion());
 app.use('/api/v1', getVersion('v1'));
-
-app.post('/voice', async (req, res) => {
-    console.log( 'Inside Voice....')
-    res.type('text/xml');
-    res.send(`
-      <Response>
-        <Say voice="alice">Hi, this is an AI assistant calling on behalf of Rekvi Technologies.</Say>
-      </Response>
-    `);
-  });
 
 // 404 Route Handler
 /**

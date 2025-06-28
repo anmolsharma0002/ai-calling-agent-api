@@ -1,184 +1,111 @@
-// const { OpenAI } = require('openai');
+const { OpenAI } = require('openai');
 const twilio = require('twilio');
-// const axios = require('axios');
-
+const axios = require('axios');
 const createError = require('http-errors');
 const env = require('../../../environment');
-// const elevenlabsService = require('../services/elevenlabs');
+const elevenlabsService = require('../services/elevenlabs');
+
 const { CohereClient } = require('cohere-ai');
-const { doctors, availableSlots } = require('../../../data/doctors');
-const { getDoctorAvailableSlots, findDoctorAvailability } = require('../../../utils/timeSlots');
-const prompts = require('../../../utils/prompts');
-const { logUserDetails } = require('../../../utils/logger');
+
 
 const cohere = new CohereClient({
-  token: env.cohere_api_key,
+  token: env.cohere_api_key, // or env.cohere_api_key
 });
 
+/** ----- 429 Error Showing ----- Using Deepseek -----  */
+// const openai = new OpenAI({
+//     apiKey: env.openai_api_key,
+// });
+
+/** ---- Twiml ----- */
 const voiceAndLanguage = {
-  voice: 'polly.Amy',
-  language: 'en-IN'
-};
+    voice: "polly.Amy",
+    language: 'en-IN'
+}
 
+// const twilioClient = twilio(env.twilio_account_sid, env.twilio_secret_key);
 const twilioClient = twilio(env.twilio_account_sid, env.twilio_auth_token);
-const userDetails = {};
 
+const callHistory = {}; // Simple in-memory chat memory
+  
 exports.index = (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Welcome to the AI Calling Agent',
-    version: process.env.API_VERSION
-  });
+    res.status(200).json({
+        success: true,
+        message: 'Welcome to the AI Calling Agent',
+        version: process.env.API_VERSION
+    });
 };
 
 exports.createCall = async (req, res, next) => {
-  try {
-    const { to } = req.body;
-    if (!to) throw createError.BadRequest('Phone number is required');
+    try {
+        const { to } = req.body;
 
-    console.log(`[Initiating call to: ${to}]`);
-    const call = await twilioClient.calls.create({
-      to,
-      from: env.twilio_phone_number,
-      url: `${env.ngrok_url}/api/v1/voice`,
-      statusCallback: `${env.ngrok_url}/api/v1/call-status`,
-      statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-      statusCallbackMethod: 'POST'
-    });
+        if (!to) throw createError.BadRequest('Phone number is required');
+        console.log(`[You have a Free account we are creating a call to: ${to} stay tuned...`)
+        const call = await twilioClient.calls.create({
+            to,
+            from: env.twilio_phone_number,
+            url: `${env.ngrok_url}/api/v1/voice`,
+            statusCallback: `${env.ngrok_url}/api/v1/call-status`,
+            statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+            statusCallbackMethod: 'POST'
+        });
 
-    res.status(200).json({
-      success: true,
-      message: 'Call initiated successfully',
-      data: {
-        callSid: call.sid,
-        status: call.status
-      }
-    });
-  } catch (error) {
-    console.error('Create Call Error:', error);
-    next(error);
-  }
+        res.status(200).json({
+            success: true,
+            message: 'Call initiated successfully',
+            data: {
+                callSid: call.sid,
+                status: call.status
+            }
+        });
+    } catch (error) {
+        console.error('Create Call Error:', error);
+        next(error);
+    }
 };
 
 exports.voice = async (req, res) => {
-  try {
-    console.log('Voice webhook triggered...');
-    const twiml = new twilio.twiml.VoiceResponse();
-    twiml.say(voiceAndLanguage, 'Hello! I am Ruhi an AI assistant, How can I help you?');
-
-    twiml.gather({
-      input: 'speech',
-      action: '/api/v1/process-speech',
-
-      // action: '/api/v1/capture-name',
-      method: 'POST',
-      speechTimeout: 2,
-      timeout: 10
-    });
-
-    res.type('text/xml').send(twiml.toString());
-  } catch (error) {
-    console.error('Voice error:', error);
-    const fallback = new twilio.twiml.VoiceResponse();
-    fallback.say(voiceAndLanguage, 'Something went wrong. Please try again later.');
-    fallback.hangup();
-    res.type('text/xml').send(fallback.toString());
-  }
-};
-
-exports.captureName = async (req, res) => {
-  const name = req.body.SpeechResult || 'Guest';
-  const callSid = req.body.CallSid;
-  userDetails[callSid] = { name };
-  console.log('[Capture Name: ]', name );
-  const twiml = new twilio.twiml.VoiceResponse();
-  twiml.say(voiceAndLanguage, `Hi ${name}, could you please confirm me your address.`);
-  twiml.gather({
-    input: 'speech',
-    action: '/api/v1/capture-address',
-    method: 'POST',
-    speechTimeout: 2,
-    timeout: 10
-  });
-
-  res.type('text/xml').send(twiml.toString());
-};
-
-exports.captureAddress = async (req, res) => {
-  const address = req.body.SpeechResult || 'unknown';
-  const callSid = req.body.CallSid;
-
-  if (!userDetails[callSid]) userDetails[callSid] = {};
-  userDetails[callSid].address = address;
-
-  console.log('[Capture Address: ]', address );
-  const twiml = new twilio.twiml.VoiceResponse();
-  twiml.say(voiceAndLanguage, 'What speciality doctor do you want to visit and at what time?');
-  twiml.gather({
-    input: 'speech',
-    action: '/api/v1/check-availability',
-    method: 'POST',
-    speechTimeout: 2,
-    timeout: 10
-  });
-
-  res.type('text/xml').send(twiml.toString());
-};
-
-exports.checkAvailability = async (req, res) => {
-  const input = req.body.SpeechResult || '';
-  const callSid = req.body.CallSid;
-
-  const specialtyMatch = input.match(/(dentist|pediatrician|cardiologist|orthopedic|ent|dermatologist|general physician|neurologist|gastroenterologist|psychiatrist)/i);
-  const timeMatch = input.match(/(\d{1,2}:\d{2})/);
-
-  const specialty = specialtyMatch ? specialtyMatch[0] : null;
-  const time = timeMatch ? timeMatch[0] : null;
-
-  const twiml = new twilio.twiml.VoiceResponse();
-
-  if (!specialty || !time) {
-    twiml.say(voiceAndLanguage, 'Sorry, I could not understand the specialty or time. Please try again.');
-    twiml.redirect('/api/v1/voice');
-    return res.type('text/xml').send(twiml.toString());
-  }
-
-  const updatedDoctors = getDoctorAvailableSlots(doctors, availableSlots);
-  const result = findDoctorAvailability(updatedDoctors, specialty, time);
-
-  if (result.error) {
-    twiml.say(voiceAndLanguage, result.error);
-    twiml.hangup();
-  } else if (result.available) {
-    // const user = userDetails[callSid] || { name: 'User', address: 'Unknown' };
-    twiml.say(voiceAndLanguage, `Appointment booked with ${result.doctor} at ${result.time}. Thank you.`);
     
-    // logUserDetails(callSid, {
-    //   name: user.name,
-    //   address: user.address,
-    //   doctor: result.doctor,
-    //   time: result.time
-    // });
+    try {
+        
+        console.log('voice webhook calling...');
+        const twiml = new twilio.twiml.VoiceResponse();
+        twiml.say(voiceAndLanguage, "Hello! This is your AI assistant. How can I help you today?");
+        // 1. Greet and listen for speech input
+        twiml.gather({
+            input: 'speech',
+            action: '/api/v1/process-speech',
+            method: 'POST',
+            speechTimeout: 10, // Waits up to 10 seconds
+            timeout: 10, // Also fallback if no speech
+            speechModel: 'experimental_conversations',
+            enhanced: true
+        });
+
+        twiml.say(voiceAndLanguage, "Please say something");
+        // 2. After timeout (no speech), hang up gracefully
+        twiml.say(voiceAndLanguage, "No response received. Goodbye.");
+        twiml.hangup();
+
+        res.type('text/xml').send(twiml.toString());
   
-    // delete userDetails[callSid]; // clean memory after log
-
-    twiml.hangup();
-  } else {
-    twiml.say(voiceAndLanguage, `${result.doctor} is not available at ${time}. Next available slot is ${result.time}.`);
-    twiml.hangup();
-  }
-
-  res.type('text/xml').send(twiml.toString());
-};
+    } catch (error) {
+      console.error('❌ Error in /voice:', error);
+      const fallbackTwiml = new twilio.twiml.VoiceResponse()
+      fallbackTwiml.say(voiceAndLanguage, "Sorry, we're having technical difficulties. Please try again later.");
+      res.type('text/xml').send(fallbackTwiml.toString());
+    }
+  };
+  
  
 
 exports.processSpeech = async (req, res) => {
-  console.log('🎤 /process-speech webhook hit');
-  const twiml = new twilio.twiml.VoiceResponse();
-  const speechResult = req.body.SpeechResult;
-  // const callSid = req.body.CallSid;
-
-  if (!speechResult) {
+    console.log('🎤 /process-speech webhook hit');
+    const twiml = new twilio.twiml.VoiceResponse();
+    const speechResult = req.body.SpeechResult;
+  
+    if (!speechResult) {
     twiml.say("I didn't catch that. Please try again.");
     twiml.redirect('/api/v1/voice');
     return res.type('text/xml').send(twiml.toString());
@@ -187,7 +114,15 @@ exports.processSpeech = async (req, res) => {
   try {
     console.log(`🗣️ User: ${speechResult}`);
 
-    const prompt = prompts.restaurantPrompt()
+    const prompt = `You are an AI assistant for Arogya Clinic. Help users with:
+        - Booking appointments
+        - Doctor timings and availability
+        - Clinic address
+
+        Do not provide medical advice.
+
+        User: ${speechResult}
+        Assistant:`;
 
     const response = await cohere.generate({
       model: 'command-r-plus',
@@ -205,15 +140,13 @@ exports.processSpeech = async (req, res) => {
       input: 'speech',
       action: '/api/v1/process-speech',
       method: 'POST',
+      speechTimeout: 10, // Waits up to 10 seconds
+      timeout: 10, // Also fallback if no speech
       speechModel: 'experimental_conversations',
-      enhanced: true,
-      speechTimeout: 2,
-      timeout: 10
-    });
+      enhanced: true
+  });
 
     twiml.say(voiceAndLanguage, 'What else can I help you with?');
-
-    twiml.hangup();
 
     res.type('text/xml').send(twiml.toString());
 
@@ -223,11 +156,102 @@ exports.processSpeech = async (req, res) => {
     twiml.hangup();
     res.type('text/xml').send(twiml.toString());
   }
-};
+  };
+
+  exports.transcribe = async (req, res) => {
+    try {
+      console.log('✅ Transcribe Endpoint Hit');
+      console.log('[Headers]', JSON.stringify(req.headers, null, 2));
+      console.log('[Body]', JSON.stringify(req.body, null, 2));
+  
+      const userText = req.body.TranscriptionText;
+      const callSid = req.body.CallSid;
+        
+      console.log(`[UserText]`, userText);
+      console.log(`[CallSid]`, callSid);
+
+      if (!userText) {
+        console.warn('⚠️ No TranscriptionText received.');
+        return res.status(200).send('No speech input.');
+      }
+  
+      console.log(`[User]: (${callSid}):`, userText);
+      
+      // Setup conversation history
+      if (!callHistory[callSid]) {
+        callHistory[callSid] = [
+          { role: 'system', content: 'You are a helpful AI assistant for a clinic. Keep replies human-like and short.' },
+        ];
+      }
+  
+      callHistory[callSid].push({ role: 'user', content: userText });
+  
+      // // 🌟 Use DeepSeek API here instead of OpenAI
+      // const deepSeekResponse = await axios.post(
+      //   'https://api.deepseek.com/v1/chat/completions',
+      //   {
+      //     model: 'deepseek-chat', // Or any other available DeepSeek model
+      //     messages: callHistory[callSid],
+      //     temperature: 0.7,
+      //     max_tokens: 150
+      //   },
+      //   {
+      //     headers: {
+      //       'Authorization': `Bearer ${env.deepseek_api_key}`,
+      //       'Content-Type': 'application/json'
+      //     }
+      //   }
+      // );
+      // const aiResponse = await deepSeekResponse.data.choices[0].message.content;
+      // callHistory[callSid].push({ role: 'assistant', content: aiResponse });
+
+      const response = await openai.chat.completions.create({
+                model: 'gpt-4o',
+                messages: callHistory[callSid],
+                max_tokens: 150,
+              });
+
+      const aiResponse = response.choices[0].message.content;
+  
+      console.log(`[🤖 AI]:`, aiResponse);
+  
+      // 🎙️ Convert AI response to speech
+      const audioBuffer = await elevenlabsService.textToSpeech(aiResponse);
+  
+      // 🌀 Build TwiML to respond with audio and record again
+      const twiml = new twilio.twiml.VoiceResponse();
+      twiml.play({}, `data:audio/mpeg;base64,${audioBuffer.toString('base64')}`);
+      twiml.record({
+        maxLength: 30,
+        transcribe: true,
+        transcribeCallback: `${env.ngrok_url}/api/v1/transcribe`,
+        playBeep: false,
+        timeout: 5
+      });
+  
+      // 📝 Log
+    //   fs.appendFileSync(`logs/${callSid}.txt`, `User: ${userText}\nAI: ${aiResponse}\n`);
+  
+      res.type('text/xml');
+      res.send(twiml.toString());
+  
+    } catch (error) {
+      console.error('❌ Transcribe Error:', error.response?.data || error.message);
+      const fallbackTwiml = new twilio.twiml.VoiceResponse();
+      fallbackTwiml.say('Sorry, I had trouble responding. Let\'s try again.');
+      fallbackTwiml.hangup();
+      res.type('text/xml');
+      res.send(fallbackTwiml.toString());
+    }
+  };
 
 
 
 exports.callStatus = (req, res) => {
+    // const { CallSid, CallStatus } = req.body;
+    // console.log(`Call ${CallSid} status: ${CallStatus}`);
+    // res.status(200).send('OK');
+
     const { CallSid, CallStatus, From, To,  Timestamp } = req.body;
 
     console.log(`[📞 Status] Time: ${Timestamp}, CallSid: ${CallSid}, From: ${From}, To: ${To}, Status: ${CallStatus}`);
@@ -238,73 +262,6 @@ exports.callStatus = (req, res) => {
     res.status(200).send('OK');
 };
 
-// exports.transcribe = async (req, res) => {
-//   try {
-//     console.log('✅ Transcribe Endpoint Hit');
-//     console.log('[Headers]', JSON.stringify(req.headers, null, 2));
-//     console.log('[Body]', JSON.stringify(req.body, null, 2));
-
-//     const userText = req.body.TranscriptionText;
-//     const callSid = req.body.CallSid;
-      
-//     console.log(`[UserText]`, userText);
-//     console.log(`[CallSid]`, callSid);
-
-//     if (!userText) {
-//       console.warn('⚠️ No TranscriptionText received.');
-//       return res.status(200).send('No speech input.');
-//     }
-
-//     console.log(`[User]: (${callSid}):`, userText);
-    
-//     // Setup conversation history
-//     if (!callHistory[callSid]) {
-//       callHistory[callSid] = [
-//         { role: 'system', content: 'You are a helpful AI assistant for a clinic. Keep replies human-like and short.' },
-//       ];
-//     }
-
-//     callHistory[callSid].push({ role: 'user', content: userText });
-
-//     const response = await openai.chat.completions.create({
-//               model: 'gpt-4o',
-//               messages: callHistory[callSid],
-//               max_tokens: 150,
-//             });
-
-//     const aiResponse = response.choices[0].message.content;
-
-//     console.log(`[🤖 AI]:`, aiResponse);
-
-//     // 🎙️ Convert AI response to speech
-//     const audioBuffer = await elevenlabsService.textToSpeech(aiResponse);
-
-//     // 🌀 Build TwiML to respond with audio and record again
-//     const twiml = new twilio.twiml.VoiceResponse();
-//     twiml.play({}, `data:audio/mpeg;base64,${audioBuffer.toString('base64')}`);
-//     twiml.record({
-//       maxLength: 30,
-//       transcribe: true,
-//       transcribeCallback: `${env.ngrok_url}/api/v1/transcribe`,
-//       playBeep: false,
-//       timeout: 5
-//     });
-
-//     // 📝 Log
-//   //   fs.appendFileSync(`logs/${callSid}.txt`, `User: ${userText}\nAI: ${aiResponse}\n`);
-
-//     res.type('text/xml');
-//     res.send(twiml.toString());
-
-//   } catch (error) {
-//     console.error('❌ Transcribe Error:', error.response?.data || error.message);
-//     const fallbackTwiml = new twilio.twiml.VoiceResponse();
-//     fallbackTwiml.say('Sorry, I had trouble responding. Let\'s try again.');
-//     fallbackTwiml.hangup();
-//     res.type('text/xml');
-//     res.send(fallbackTwiml.toString());
-//   }
-// };
 
 
 
