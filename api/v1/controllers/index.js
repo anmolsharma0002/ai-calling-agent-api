@@ -11,6 +11,8 @@ const { getDoctorAvailableSlots, findDoctorAvailability } = require('../../../ut
 const prompts = require('../../../utils/prompts');
 const { logUserDetails } = require('../../../utils/logger');
 
+const chatMemory = {}; // Simple in-memory session-based memory
+
 const cohere = new CohereClient({
   token: env.cohere_api_key,
 });
@@ -37,6 +39,7 @@ exports.createCall = async (req, res, next) => {
     if (!to) throw createError.BadRequest('Phone number is required');
 
     console.log(`[Initiating call to: ${to}]`);
+
     const call = await twilioClient.calls.create({
       to,
       from: env.twilio_phone_number,
@@ -54,6 +57,7 @@ exports.createCall = async (req, res, next) => {
         status: call.status
       }
     });
+
   } catch (error) {
     console.error('Create Call Error:', error);
     next(error);
@@ -64,19 +68,34 @@ exports.voice = async (req, res) => {
   try {
     console.log('Voice webhook triggered...');
     const twiml = new twilio.twiml.VoiceResponse();
-    twiml.say(voiceAndLanguage, 'Hello! I am Ruhi an AI assistant, How can I help you?');
 
+     // Instead of speaking anything static, just listen
     twiml.gather({
       input: 'speech',
       action: '/api/v1/process-speech',
-
-      // action: '/api/v1/capture-name',
       method: 'POST',
       speechTimeout: 2,
       timeout: 10
     });
 
+    // Optionally a fallback in case user doesn’t speak at all
+    twiml.say(voiceAndLanguage, 'Hello! This is Ruhi from Rekvi Technologies. Please let me know how can I assist you today.');
+    twiml.redirect('/api/v1/voice');
+
     res.type('text/xml').send(twiml.toString());
+
+    // twiml.say(voiceAndLanguage, 'Hello! I am Ruhi an AI assistant I will help you to book an appointment with doctors, May I know your name?');
+
+    // twiml.gather({
+    //   input: 'speech',
+    //   action: '/api/v1/process-speech',
+    //   // action: '/api/v1/capture-name',
+    //   method: 'POST',
+    //   speechTimeout: 2,
+    //   timeout: 10
+    // });
+
+    // res.type('text/xml').send(twiml.toString());
   } catch (error) {
     console.error('Voice error:', error);
     const fallback = new twilio.twiml.VoiceResponse();
@@ -87,12 +106,16 @@ exports.voice = async (req, res) => {
 };
 
 exports.captureName = async (req, res) => {
-  const name = req.body.SpeechResult || 'Guest';
+  const name = req.body.SpeechResult || 'Unknown';
   const callSid = req.body.CallSid;
+
   userDetails[callSid] = { name };
   console.log('[Capture Name: ]', name );
+
   const twiml = new twilio.twiml.VoiceResponse();
+
   twiml.say(voiceAndLanguage, `Hi ${name}, could you please confirm me your address.`);
+
   twiml.gather({
     input: 'speech',
     action: '/api/v1/capture-address',
@@ -109,11 +132,12 @@ exports.captureAddress = async (req, res) => {
   const callSid = req.body.CallSid;
 
   if (!userDetails[callSid]) userDetails[callSid] = {};
+
   userDetails[callSid].address = address;
 
   console.log('[Capture Address: ]', address );
   const twiml = new twilio.twiml.VoiceResponse();
-  twiml.say(voiceAndLanguage, 'What speciality doctor do you want to visit and at what time?');
+  twiml.say(voiceAndLanguage, 'May I know which doctor do you wants to meet?');
   twiml.gather({
     input: 'speech',
     action: '/api/v1/check-availability',
@@ -171,60 +195,208 @@ exports.checkAvailability = async (req, res) => {
   res.type('text/xml').send(twiml.toString());
 };
  
-
 exports.processSpeech = async (req, res) => {
   console.log('🎤 /process-speech webhook hit');
-  const twiml = new twilio.twiml.VoiceResponse();
-  const speechResult = req.body.SpeechResult;
-  // const callSid = req.body.CallSid;
 
-  if (!speechResult) {
-    twiml.say("I didn't catch that. Please try again.");
-    twiml.redirect('/api/v1/voice');
+  const twiml = new twilio.twiml.VoiceResponse();
+  const speechResult = (req.body.SpeechResult || '').toLowerCase();
+  const callSid = req.body.CallSid || 'default';
+
+  const exitPhrases = [
+    'see you', 'see you later', 'hang up', 'bye', 
+    'talk soon', 'not interested', 'no thank you', 'goodbye', `no i don't want to schedule`
+  ];
+
+  const shouldExit = exitPhrases.some(phrase => speechResult.includes(phrase));
+
+  if (!speechResult || shouldExit) {
+    twiml.say({
+      voice: 'polly.Amy',
+      language: 'en-IN'
+    }, 'Thank you for calling Rekvi Technologies. If you’d like to know more, feel free to reach out again — I’ll be happy to assist you.');
+
+    twiml.hangup();
     return res.type('text/xml').send(twiml.toString());
   }
 
   try {
-    console.log(`🗣️ User: ${speechResult}`);
+    console.log(`📞 Session [${callSid}] | User: ${speechResult}`);
 
-    const prompt = prompts.restaurantPrompt()
+    if (!chatMemory[callSid]) {
+      chatMemory[callSid] = [
+        {
+          role: 'system',
+          message: prompts.appointment(speechResult) // customize your prompt logic here
+        }
+      ];
+    }
 
-    const response = await cohere.generate({
+    chatMemory[callSid].push({
+      role: 'user',
+      message: speechResult
+    });
+
+    const response = await cohere.chat({
       model: 'command-r-plus',
-      prompt,
-      max_tokens: 150,
+      chatHistory: chatMemory[callSid],
+      message: speechResult,
       temperature: 0.7
     });
 
-    const aiResponse = response.generations[0].text.trim();
-    console.log('🤖 AI Response:', aiResponse);
+    const aiReply = response.text.trim();
+    console.log('🤖 AI Response:', aiReply);
 
-    twiml.say(voiceAndLanguage, aiResponse);
-
-    twiml.gather({
-      input: 'speech',
-      action: '/api/v1/process-speech',
-      method: 'POST',
-      speechModel: 'experimental_conversations',
-      enhanced: true,
-      speechTimeout: 2,
-      timeout: 10
+    chatMemory[callSid].push({
+      role: 'chatbot',
+      message: aiReply
     });
 
-    twiml.say(voiceAndLanguage, 'What else can I help you with?');
+    // Check if AI has confirmed appointment or declined it
+    const hangupKeywords = ['appointment has been scheduled', 'we’ll remind you', 'no problem at all', 'feel free to ask'];
 
-    twiml.hangup();
+    const isFinalResponse = hangupKeywords.some(k => aiReply.toLowerCase().includes(k));
+
+    twiml.say({ voice: 'polly.Amy', language: 'en-IN' }, aiReply);
+
+    if (isFinalResponse) {
+      twiml.hangup();
+    } else {
+      twiml.gather({
+        input: 'speech',
+        action: '/api/v1/process-speech',
+        method: 'POST',
+        speechTimeout: 2,
+        timeout: 10
+      });
+
+      twiml.say({ voice: 'polly.Amy', language: 'en-IN' }, 'How else may I help you?');
+    }
 
     res.type('text/xml').send(twiml.toString());
 
   } catch (error) {
-    console.error('❌ processSpeech Error:', error.message || error.response?.data);
+    console.error('❌ AI Processing Error:', error.message || error.response?.data);
     twiml.say("Sorry, I'm having trouble responding. Let's try again.");
     twiml.hangup();
     res.type('text/xml').send(twiml.toString());
   }
 };
 
+// exports.processSpeech = async (req, res) => {
+//   console.log('🎤 /process-speech webhook hit');
+//   const twiml = new twilio.twiml.VoiceResponse();
+//   const speechResult = req.body.SpeechResult;
+//   // const callSid = req.body.CallSid;
+
+//   if (!speechResult) {
+//     twiml.say("I didn't catch that. Please try again.");
+//     twiml.redirect('/api/v1/voice');
+//     return res.type('text/xml').send(twiml.toString());
+//   }
+
+//   try {
+//     console.log(`🗣️ User: ${speechResult}`);
+
+//     const prompt = prompts.appointmentPrompt(userDetails)
+
+//     const response = await cohere.generate({
+//       model: 'command-r-plus',
+//       prompt,
+//       max_tokens: 150,
+//       temperature: 0.7
+//     });
+
+//     const aiResponse = response.generations[0].text.trim();
+//     console.log('🤖 AI Response:', aiResponse);
+
+//     twiml.say(voiceAndLanguage, aiResponse);
+
+//     twiml.gather({
+//       input: 'speech',
+//       action: '/api/v1/process-speech',
+//       method: 'POST',
+//       speechModel: 'experimental_conversations',
+//       enhanced: true,
+//       speechTimeout: 2,
+//       timeout: 10
+//     });
+
+//     twiml.say(voiceAndLanguage, 'What else can I help you with?');
+
+//     twiml.hangup();
+
+//     res.type('text/xml').send(twiml.toString());
+
+//   } catch (error) {
+//     console.error('❌ processSpeech Error:', error.message || error.response?.data);
+//     twiml.say("Sorry, I'm having trouble responding. Let's try again.");
+//     twiml.hangup();
+//     res.type('text/xml').send(twiml.toString());
+//   }
+// };
+
+
+
+exports.testSpeech = async (req, res) => {
+  const { text, sessionId = 'default' } = req.body;
+
+  if (!text) return res.status(400).json({ success: false, message: 'Text input required' });
+
+  try {
+    console.log(`🧪 Session [${sessionId}] | User: ${text}`);
+
+    // console.log( prompts.appointment);
+
+    // Initialize chat history if not present
+    if (!chatMemory[sessionId]) {
+      chatMemory[sessionId] = [
+        {
+          role: 'system',
+          message: prompts.appointment(text)
+        }
+      ];
+    }
+
+    // Append user message to history
+    chatMemory[sessionId].push({
+      role: 'user',
+      message: text
+    });
+
+    // Call Cohere Chat API with memory
+    const response = await cohere.chat({
+      model: 'command-r-plus',
+      chatHistory: chatMemory[sessionId],
+      message: text,
+      temperature: 0.7,
+    });
+
+    const aiReply = response.text.trim();
+
+    // Append AI response to history
+    chatMemory[sessionId].push({
+      role: 'chatbot',
+      message: aiReply
+    });
+
+    console.log('🤖 AI Response:', aiReply);
+
+    return res.status(200).json({
+      success: true,
+      sessionId,
+      user: text,
+      response: aiReply
+    });
+
+  } catch (error) {
+    console.error('❌ Chat Error:', error.message || error.response?.data);
+    return res.status(500).json({
+      success: false,
+      message: 'Something went wrong',
+      error: error.message || 'Unknown error'
+    });
+  }
+};
 
 
 exports.callStatus = (req, res) => {

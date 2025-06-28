@@ -1,5 +1,3 @@
-// utils/slotUtils.js
-
 function getDoctorAvailableSlots(doctors, availableSlots) {
     return doctors.map((doctor) => {
       const busySet = new Set(doctor.busySlots);

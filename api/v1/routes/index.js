@@ -12,6 +12,7 @@ router.post('/process-speech', controller.processSpeech); // Handles speech repl
 router.post('/capture-name', controller.captureName);
 router.post('/capture-address', controller.captureAddress);
 router.post('/check-availability', controller.checkAvailability);
+router.post('/test-speech', controller.testSpeech);
 router.post('/call-status', controller.callStatus); // Logs Twilio call status
 // router.post('/transcribe', controller.transcribe); // ❌ Not needed (you're not recording)
 // router.post('/continue', controller.continue); // ❌ Not used in new flow
