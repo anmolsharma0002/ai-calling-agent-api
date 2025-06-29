@@ -5,6 +5,9 @@
 #node modules
 /node_modules
 
-/audio
+# Ignore all audio session directories and files
+public/audio/*
+# But keep the audio directory itself
+!public/audio/
 
 package-lock.json
