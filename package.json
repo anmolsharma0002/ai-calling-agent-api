@@ -25,6 +25,7 @@
   },
   "homepage": "https://github.com/anmolsharma0002/ai-calling-agent-api#readme",
   "dependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.4.1",
     "@llama-node/llama-cpp": "^0.1.6",
     "axios": "^1.9.0",
     "body-parser": "^2.2.0",

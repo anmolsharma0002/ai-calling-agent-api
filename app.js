@@ -39,6 +39,8 @@ const app = express();
 // Parse URL-encoded bodies (for Twilio webhooks and forms)
 app.use(express.json());
 app.use(express.urlencoded({ extended: false })); // <--- REQUIRED
+
+
 // app.use(bodyParser.json());
 // app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -54,6 +56,7 @@ const { getVersion, getLatestVersion } = require('./api/versionManager');
 
 // API Versioning
 const API_VERSION = process.env.API_VERSION || 'v1';
+app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
 app.use('/api', getVersion(API_VERSION));
 app.use('/api/latest', getLatestVersion());
 app.use('/api/v1', getVersion('v1'));
