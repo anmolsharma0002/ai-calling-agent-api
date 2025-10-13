@@ -12,11 +12,6 @@ const cohere = new CohereClient({
   token: env.cohere_api_key,
 });
 
-const voiceAndLanguage = {
-  voice: 'polly.Amy',
-  language: 'en-IN'
-};
-
 const twilioClient = twilio(env.twilio_account_sid, env.twilio_auth_token);
 
 // Function to play audio on call using ElevenLabs
@@ -71,46 +66,6 @@ exports.createCall = async (req, res, next) => {
     next(error);
   }
 };
-
-// exports.voice = async (req, res) => {
-//   try {
-//     console.log('Voice webhook triggered...', req.body);
-//     const callSid = req.body.CallSid || 'default';
-//     const twiml = new twilio.twiml.VoiceResponse();
-
-//     // Instead of speaking anything static, just listen
-//     twiml.gather({
-//       input: 'speech',
-//       action: '/api/v1/process-speech',
-//       method: 'POST',
-//       speechTimeout: 2,
-//       timeout: 10,
-//       speechModel: 'experimental_conversations',
-//     });
-
-//     // Optionally a fallback in case user doesn't speak at all
-//     let twilioGreetings = "Hello! This is Roy from Rekvi Technologies. Please let me know how can I assist you today.";
-    
-//     // Try to use ElevenLabs for better voice quality
-//     const audioUrl = await playOnCall(twilioGreetings, callSid);
-//     if (audioUrl) {
-//       twiml.play(audioUrl);
-//     } else {
-//       // Fallback to Twilio's built-in speech
-//       twiml.say(voiceAndLanguage, twilioGreetings);
-//     }
-
-//     // twiml.redirect('/api/v1/voice');
-//     // twiml.hangup();
-//     res.type('text/xml').send(twiml.toString());
-//   } catch (error) {
-//     console.error('Voice error:', error);
-//     const fallback = new twilio.twiml.VoiceResponse();
-//     fallback.say(voiceAndLanguage, 'Something went wrong. Please try again later.');
-//     fallback.hangup();
-//     res.type('text/xml').send(fallback.toString());
-//   }
-// };
 
 exports.voice = async (req, res) => {
   const callSid = req.body.CallSid || 'default';
